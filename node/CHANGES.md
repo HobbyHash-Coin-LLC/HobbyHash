@@ -16,6 +16,7 @@ Paths below are relative to `node/AL10/` or `node/AL9/` (identical trees).
 | `src/consensus/params.h` | Adds race / RandomX / marker-related consensus fields | Gives the rest of the node typed parameters instead of magic numbers |
 | `src/consensus/dual_pow.h` / `dual_pow.cpp` | Algo classification, extended-header bit 0, KawPow/RandomX version bits | Prevents AsicBoost version-rolling from changing header length; classifies SHA vs KawPow vs RandomX correctly |
 | `src/pow.h` / `pow.cpp` | Per-algo difficulty tracks and race PoW checks | Each algo has its own LWMA; first valid PoW wins the height |
+| `src/pow.cpp` / `src/consensus/params.h` / `src/kernel/chainparams.cpp` | From height **16950**, race LWMA solvetime uses the prior **same-algo** block only (not tip gap), with per-algo target **390 s** (~2.16 min race spacing with three live algos) | Stops other algos from making a slow SHA/GPU/CPU win look “fast”; each algo tracks its own hits |
 | `src/primitives/block.h` / `block.cpp` | Header fields `nNonce64`, `mixHash`; serialize length gated on bit 0 | KawPow/RandomX need extended headers; SHA stays 80-byte |
 | `src/chain.h` | Per-algo bits helpers / index fields used in memory | Supports independent difficulty tracks without rewriting ancient disk index layout incorrectly |
 | `src/validation.cpp` | Height-gated PoW and marker checks at connect | Rejects invalid race blocks; ignores new rules below activation |

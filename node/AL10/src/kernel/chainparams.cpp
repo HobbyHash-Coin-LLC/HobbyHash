@@ -134,6 +134,9 @@ public:
         // V6 multi-algo race (SHA + KawPow + RandomX) — LOCKED mainnet 16800 (reset)
         consensus.nMultiAlgoRaceActivationHeight = 16800;
         consensus.nMultiAlgoPerAlgoTargetSpacing = 450; // per-algo target; ~150s overall with 3 live algos
+        // Same-algo solvetime + 6.5 min per-algo target (→ ~2.16 min race spacing)
+        consensus.nMultiAlgoSameAlgoLwmaActivationHeight = 16950;
+        consensus.nMultiAlgoPerAlgoTargetSpacingSameAlgo = 390;
         consensus.nMultiAlgoRandomXSeedBits = 0x1d00ffff; // soft start; LWMA self-corrects
         consensus.nMultiAlgoRaceReplayForkId = 0x00016800;
 
@@ -288,6 +291,8 @@ public:
         // V6 multi-algo race (testnet burn-in) — low activation for a fresh burn-in testnet
         consensus.nMultiAlgoRaceActivationHeight = 200;
         consensus.nMultiAlgoPerAlgoTargetSpacing = 630;
+        consensus.nMultiAlgoSameAlgoLwmaActivationHeight = 16950;
+        consensus.nMultiAlgoPerAlgoTargetSpacingSameAlgo = 390;
         consensus.nMultiAlgoRandomXSeedBits = 0x1d00ffff;
         consensus.nMultiAlgoRaceReplayForkId = 0x00016800;
 
@@ -650,6 +655,8 @@ public:
         // V6 multi-algo race (regtest — low height for tests; enable retarget via args when needed)
         consensus.nMultiAlgoRaceActivationHeight = 200;
         consensus.nMultiAlgoPerAlgoTargetSpacing = 630;
+        consensus.nMultiAlgoSameAlgoLwmaActivationHeight = 250;
+        consensus.nMultiAlgoPerAlgoTargetSpacingSameAlgo = 390;
         consensus.nMultiAlgoRandomXSeedBits = 0x207fffff;
         consensus.nMultiAlgoRaceReplayForkId = 0x00016800;
         // V6.1 RandomX ease intentionally DISABLED on regtest: regtest powLimit is

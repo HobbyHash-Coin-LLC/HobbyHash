@@ -170,6 +170,11 @@ struct Params {
     int nMultiAlgoRaceActivationHeight{0};
     /** Per-algo LWMA target spacing in race mode (630 → ~210s overall with 3 live). */
     int64_t nMultiAlgoPerAlgoTargetSpacing{630};
+    /** From this height, race LWMA solvetime uses prior same-algo block only (not tip gap),
+     *  and targets nMultiAlgoPerAlgoTargetSpacingSameAlgo (390 → ~130s / 2.16 min overall). */
+    int nMultiAlgoSameAlgoLwmaActivationHeight{0};
+    /** Per-algo LWMA target spacing after same-algo solvetime activation (6.5 min). */
+    int64_t nMultiAlgoPerAlgoTargetSpacingSameAlgo{390};
     unsigned int nMultiAlgoRandomXSeedBits{0};
     uint32_t nMultiAlgoRaceReplayForkId{0};
 

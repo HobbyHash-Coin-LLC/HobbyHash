@@ -390,10 +390,9 @@ unsigned int GetNextGpuWorkRequired(const CBlockIndex* pindexLast, const CBlockH
 // V5.1 per-algo Linear Weighted Moving Average (Zawy LWMA-1) retarget.
 // Operates independently for SHA and GPU using only same-algo blocks mined
 // at/after the LWMA activation height, so the noisy pre-fork difficulty does
-// not pollute the window. Each block's solvetime is measured against its
-// immediate predecessor (when mining for that height could start), clamped to
-// [1, 6T], and weighted linearly by recency. Targets 'T' seconds between
-// consecutive blocks overall (nPowPostForkTargetSpacing).
+// not pollute the window. Solvetime is tip-gap (pprev) until
+// nMultiAlgoSameAlgoLwmaActivationHeight; thereafter race mode uses the prior
+// same-algo block only. Clamped to [1, 6T] and weighted linearly by recency.
 unsigned int GetNextWorkRequiredLwmaForAlgo(const CBlockIndex* pindexLast, const CBlockHeader* pblock, PowAlgo algo, const Consensus::Params& params)
 {
     assert(pindexLast != nullptr);
@@ -405,11 +404,21 @@ unsigned int GetNextWorkRequiredLwmaForAlgo(const CBlockIndex* pindexLast, const
     const arith_uint256 bnAlgoPowLimit = (algo == PowAlgo::RANDOMX)
         ? UintToArith256(RandomXPowLimit(nHeightNext, params))
         : bnPowLimit;
-    // Race mode: each algo targets 630s so three live algos race to ~210s overall.
-    const int64_t T = MultiAlgoRaceActive(nHeightNext, params) && params.nMultiAlgoPerAlgoTargetSpacing > 0
-                          ? params.nMultiAlgoPerAlgoTargetSpacing
-                          : PowTargetSpacingAtHeight(params, nHeightNext);
-    const int act = MultiAlgoRaceActive(nHeightNext, params)
+    const bool race = MultiAlgoRaceActive(nHeightNext, params);
+    const bool sameAlgoSt = race &&
+                            params.nMultiAlgoSameAlgoLwmaActivationHeight > 0 &&
+                            nHeightNext >= params.nMultiAlgoSameAlgoLwmaActivationHeight;
+    // Race mode: per-algo target spacing until same-algo activation, then 390s
+    // (~130s / 2.16 min overall with three live).
+    int64_t T;
+    if (race && sameAlgoSt && params.nMultiAlgoPerAlgoTargetSpacingSameAlgo > 0) {
+        T = params.nMultiAlgoPerAlgoTargetSpacingSameAlgo;
+    } else if (race && params.nMultiAlgoPerAlgoTargetSpacing > 0) {
+        T = params.nMultiAlgoPerAlgoTargetSpacing;
+    } else {
+        T = PowTargetSpacingAtHeight(params, nHeightNext);
+    }
+    const int act = race
                         ? params.nMultiAlgoRaceActivationHeight
                         : params.nDualPowLwmaActivationHeight;
     const int N = params.nLwmaWindow > 0 ? params.nLwmaWindow : 60;
@@ -444,8 +453,26 @@ unsigned int GetNextWorkRequiredLwmaForAlgo(const CBlockIndex* pindexLast, const
     arith_uint256 sumTarget = 0;
     int64_t weightedSolvetime = 0;
     for (int k = 1; k <= n; ++k) {
-        const CBlockIndex* b = blocks[n - k];
-        int64_t st = b->pprev ? (b->GetBlockTime() - b->pprev->GetBlockTime()) : T;
+        // blocks is newest-first; k=1 is oldest in window, k=n is newest.
+        const int idx = n - k;
+        const CBlockIndex* b = blocks[idx];
+        int64_t st;
+        if (sameAlgoSt) {
+            const CBlockIndex* prevSame = nullptr;
+            if (idx + 1 < n) {
+                prevSame = blocks[idx + 1];
+            } else {
+                for (const CBlockIndex* p = b->pprev; p != nullptr && p->nHeight >= act; p = p->pprev) {
+                    if (AlgoAtIndex(p, params) == algo) {
+                        prevSame = p;
+                        break;
+                    }
+                }
+            }
+            st = prevSame ? (b->GetBlockTime() - prevSame->GetBlockTime()) : T;
+        } else {
+            st = b->pprev ? (b->GetBlockTime() - b->pprev->GetBlockTime()) : T;
+        }
         if (st < 1) st = 1;
         if (st > 6 * T) st = 6 * T;
         weightedSolvetime += static_cast<int64_t>(k) * st;

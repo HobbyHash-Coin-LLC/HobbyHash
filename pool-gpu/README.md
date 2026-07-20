@@ -26,7 +26,8 @@ You must set real values for:
 - `HOBC_POOL_SITE=your.real.domain`
 
 **Spoofed site names or fake census data can get your pool blocked by HobbyHash Coin LLC administrators.**  
-See [`../docs/POOL_COMPLIANCE.md`](../docs/POOL_COMPLIANCE.md).
+See [`../docs/POOL_COMPLIANCE.md`](../docs/POOL_COMPLIANCE.md).  
+**Validate + generate env config first:** https://hobbyhashcoin.com/docs/pool-config/ (`HOBC_POOL_SITE` ≤ 24 chars).
 
 ---
 

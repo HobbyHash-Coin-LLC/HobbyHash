@@ -36,8 +36,9 @@ That marker must include real pool identity fields (`pool_id`, algorithm, share 
 
 Read:
 
-- [`docs/POOL_COMPLIANCE.md`](docs/POOL_COMPLIANCE.md) — marker rules, real-info policy, step-by-step checklist
+- [`docs/POOL_COMPLIANCE.md`](docs/POOL_COMPLIANCE.md) — marker rules, real-info policy, examples, do’s / don’ts
 - [`docs/FORK_SPEC_V6.md`](docs/FORK_SPEC_V6.md) — full technical specification
+- **Live validator / config builder:** https://hobbyhashcoin.com/docs/pool-config/
 
 ---
 
@@ -49,8 +50,9 @@ Read:
    - SHA ASICs → [`pool-sha/`](pool-sha/)
    - NVIDIA/AMD KawPow GPUs → [`pool-gpu/`](pool-gpu/)
    - CPU RandomX → [`pool-cpu/`](pool-cpu/)
-4. Configure `hobc_marker`, `hobc_pool_id`, `hobc_pool_site`, and census token **with real information**.
-5. Point miners at your stratum port and confirm accepted shares + valid HOBC markers on solved blocks.
+4. Validate `pool_site` (≤ 24 chars), `pool_id`, and `algo` on https://hobbyhashcoin.com/docs/pool-config/ and copy the generated config.
+5. Configure `hobc_marker`, `hobc_pool_id`, `hobc_pool_site`, and census token **with real information**.
+6. Point miners at your stratum port and confirm accepted shares + valid HOBC markers on solved blocks.
 
 Each folder has a beginner (“for dummies”) guide with copy-paste commands.
 

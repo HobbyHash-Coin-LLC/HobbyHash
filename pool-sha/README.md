@@ -28,7 +28,8 @@ You must configure:
 - `hobc_pool_site`: your **real** site hostname/label
 
 **Fake or spoofed identity information can get your pool blocked by HobbyHash Coin LLC administrators.**  
-Full policy: [`../docs/POOL_COMPLIANCE.md`](../docs/POOL_COMPLIANCE.md).
+Full policy: [`../docs/POOL_COMPLIANCE.md`](../docs/POOL_COMPLIANCE.md).  
+**Validate + generate config first:** https://hobbyhashcoin.com/docs/pool-config/ (`pool_site` ≤ 24 chars, worker suffix ≤ 16 chars).
 
 ---
 

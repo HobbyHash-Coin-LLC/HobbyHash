@@ -25,7 +25,8 @@ Required environment:
 - `HOBC_POOL_SITE=your.real.domain`
 
 **Use real pool identity information.** Fake tags or spoofed sites can result in **admin blocks** by HobbyHash Coin LLC.  
-Details: [`../docs/POOL_COMPLIANCE.md`](../docs/POOL_COMPLIANCE.md).
+Details: [`../docs/POOL_COMPLIANCE.md`](../docs/POOL_COMPLIANCE.md).  
+**Validate + generate env config first:** https://hobbyhashcoin.com/docs/pool-config/ (`HOBC_POOL_SITE` ≤ 24 chars).
 
 ---
 

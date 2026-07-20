@@ -1,0 +1,419 @@
+/*
+ * Copyright 2014-2017 Con Kolivas
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 3 of the License, or (at your option)
+ * any later version.  See COPYING for more details.
+ */
+
+#ifndef CKPOOL_H
+#define CKPOOL_H
+
+#include "config.h"
+
+#include <sys/file.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+
+#include "libckpool.h"
+#include "uthash.h"
+
+#define RPC_TIMEOUT 60
+
+struct ckpool_instance;
+typedef struct ckpool_instance ckpool_t;
+
+struct ckmsg {
+	struct ckmsg *next;
+	struct ckmsg *prev;
+	void *data;
+};
+
+typedef struct ckmsg ckmsg_t;
+
+typedef struct unix_msg unix_msg_t;
+
+struct unix_msg {
+	unix_msg_t *next;
+	unix_msg_t *prev;
+	int sockd;
+	char *buf;
+};
+
+struct ckmsgq {
+	ckpool_t *ckp;
+	char name[16];
+	pthread_t pth;
+	mutex_t *lock;
+	pthread_cond_t *cond;
+	ckmsg_t *msgs;
+	void (*func)(ckpool_t *, void *);
+	int64_t messages;
+	bool active;
+};
+
+typedef struct ckmsgq ckmsgq_t;
+
+typedef struct proc_instance proc_instance_t;
+
+struct proc_instance {
+	ckpool_t *ckp;
+	unixsock_t us;
+	char *processname;
+	char *sockname;
+	int pid;
+	int oldpid;
+	pthread_t pth_process;
+
+	/* Linked list of received messages, locking and conditional */
+	unix_msg_t *unix_msgs;
+	mutex_t rmsg_lock;
+	pthread_cond_t rmsg_cond;
+};
+
+struct connsock {
+	int fd;
+	char *url;
+	char *port;
+	char *auth;
+
+	char *buf;
+	int bufofs;
+	int buflen;
+	int bufsize;
+	int rcvbufsiz;
+	int sendbufsiz;
+
+	ckpool_t *ckp;
+	/* Semaphore used to serialise request/responses */
+	sem_t sem;
+
+	bool alive;
+};
+
+typedef struct connsock connsock_t;
+
+typedef struct char_entry char_entry_t;
+
+struct char_entry {
+	char_entry_t *next;
+	char_entry_t *prev;
+	char *buf;
+};
+
+typedef struct log_entry log_entry_t;
+
+struct log_entry {
+	log_entry_t *next;
+	log_entry_t *prev;
+	char *fname;
+	char *buf;
+};
+
+struct server_instance {
+	/* Hash table data */
+	UT_hash_handle hh;
+	int id;
+
+	char *url;
+	char *auth;
+	char *pass;
+	bool notify;
+	bool alive;
+	connsock_t cs;
+};
+
+typedef struct server_instance server_instance_t;
+
+struct ckpool_instance {
+	/* Start time */
+	time_t starttime;
+	/* Start pid */
+	pid_t startpid;
+	/* The initial command line arguments */
+	char **initial_args;
+	/* Number of arguments */
+	int args;
+	/* Filename of config file */
+	char *config;
+	/* Kill old instance with same name */
+	bool killold;
+	/* Whether to log shares or not */
+	bool logshares;
+	/* Logging level */
+	int loglevel;
+	/* Main process name */
+	char *name;
+	/* Directory where sockets are created */
+	char *socket_dir;
+	/* Directory where ckdb sockets are */
+	char *ckdb_sockdir;
+	/* Name of the ckdb process */
+	char *ckdb_name;
+	char *ckdb_sockname;
+	/* Group ID for unix sockets */
+	char *grpnam;
+	gid_t gr_gid;
+	/* Directory where logs are written */
+	char *logdir;
+	/* Logfile */
+	char *logfilename;
+	FILE *logfp;
+	int logfd;
+	time_t lastopen_t;
+	/* Connector fds if we inherit them from a running process */
+	int *oldconnfd;
+	/* Should we inherit a running instance's socket and shut it down */
+	bool handover;
+	/* How many clients maximum to accept before rejecting further */
+	int maxclients;
+
+	/* API message queue */
+	ckmsgq_t *ckpapi;
+
+	/* Logger message queue */
+	ckmsgq_t *logger;
+	ckmsgq_t *console_logger;
+
+	/* Process instance data of parent/child processes */
+	proc_instance_t main;
+
+	proc_instance_t generator;
+	proc_instance_t stratifier;
+	proc_instance_t connector;
+
+	bool generator_ready;
+	bool stratifier_ready;
+	bool connector_ready;
+
+	/* Threads of main process */
+	pthread_t pth_listener;
+	pthread_t pth_watchdog;
+
+	/* Are we running in trusted remote node mode */
+	bool remote;
+	/* Does our upstream pool in remote mode have ckdb */
+	bool upstream_ckdb;
+
+	/* Are we running in node proxy mode */
+	bool node;
+
+	/* Are we running in passthrough mode */
+	bool passthrough;
+
+	/* Are we a redirecting passthrough */
+	bool redirector;
+
+	/* Are we running as a proxy */
+	bool proxy;
+
+	/* Are we running without ckdb */
+	bool standalone;
+
+	/* Are we running in userproxy mode */
+	bool userproxy;
+
+	/* Should we daemonise the ckpool process */
+	bool daemon;
+
+	/* Should we disable the throbber */
+	bool quiet;
+
+	/* Have we given warnings about the inability to raise buf sizes */
+	bool wmem_warn;
+	bool rmem_warn;
+
+	/* Bitcoind data */
+	int btcds;
+	char **btcdurl;
+	char **btcdauth;
+	char **btcdpass;
+	bool *btcdnotify;
+	int blockpoll; // How frequently in ms to poll bitcoind for block updates
+	int nonce1length; // Extranonce1 length
+	int nonce2length; // Extranonce2 length
+
+	/* Difficulty settings */
+	int64_t mindiff; // Default 1
+	int64_t startdiff; // Default 42
+	int64_t maxdiff; // No default
+	double stratum_diff_scale; // Scale exposed stratum difficulty (default 1.0)
+	bool enforce_worker_address; // Reject non-address usernames when enabled
+	bool ignore_miner_diff; // Ignore mining.suggest_difficulty and worker diff defaults
+	char *worker_address_prefix; // Required worker address prefix (e.g. hobc1)
+	bool fallback_worker_address; // Invalid worker addresses fall back to pool btcaddress instead of rejecting
+	bool direct_worker_payout; // Coinbase pays each miner's HOBC address (solo, no payout daemon)
+	bool strip_btc_address_field; // HOBC.BTC.WORKER -> HOBC.WORKER for normal worker display on the SHA pool
+	double max_hashrate_ths; // Disconnect miners above this hashrate (TH/s); 0 = disabled
+#define MAX_HASHRATE_WHITELIST 128
+	char max_hashrate_whitelist[MAX_HASHRATE_WHITELIST][INET6_ADDRSTRLEN];
+	int max_hashrate_whitelist_count;
+	char *ban_file; // JSON file of banned miner IPs (admin panel)
+
+	/* Coinbase data */
+	char *btcaddress; // Address to mine to
+	char *btcsig; // Optional signature to add to coinbase
+	char *donaddress; // Donation address
+	bool donvalid; // Donation address works on this network
+
+	/* HOBC V6 telemetry marker (consensus-required at/after the multi-algo race activation
+	 * height; harmless below it). When hobc_marker is enabled the marker replaces btcsig in
+	 * the coinbase scriptSig to stay within the 100-byte cap. */
+	bool hobc_marker; // Emit the HOBC coinbase telemetry marker (default false)
+	int hobc_pool_id; // Numeric pool id stamped into the marker
+	int hobc_algo;    // 0=sha256 1=kawpow 2=randomx (this pool's algo)
+	char *hobc_pool_site; // Pool website/IP for the marker (<=22 bytes with fixed rig/worker)
+	char *hobc_census_token; // Shared secret for node submitcensus (empty = census emit off)
+
+	/* Stratum options */
+	server_instance_t **servers;
+	char **serverurl; // Array of URLs to bind our server/proxy to
+	int serverurls; // Number of server bindings
+	bool *nodeserver; // If this server URL serves node information
+	bool *trusted; // If this server URL accepts trusted remote nodes
+	char *upstream; // Upstream pool in trusted remote mode
+
+	int update_interval; // Seconds between stratum updates
+
+	/* Proxy options */
+	int proxies;
+	char **proxyurl;
+	char **proxyauth;
+	char **proxypass;
+
+	/* Passthrough redirect options */
+	int redirecturls;
+	char **redirecturl;
+	char **redirectport;
+
+	/* Private data for each process */
+	void *gdata;
+	void *sdata;
+	void *cdata;
+};
+
+enum stratum_msgtype {
+	SM_RECONNECT = 0,
+	SM_DIFF,
+	SM_MSG,
+	SM_UPDATE,
+	SM_ERROR,
+	SM_SUBSCRIBE,
+	SM_SUBSCRIBERESULT,
+	SM_SHARE,
+	SM_SHARERESULT,
+	SM_AUTH,
+	SM_AUTHRESULT,
+	SM_TXNS,
+	SM_TXNSRESULT,
+	SM_PING,
+	SM_WORKINFO,
+	SM_SUGGESTDIFF,
+	SM_BLOCK,
+	SM_PONG,
+	SM_TRANSACTIONS,
+	SM_SHAREERR,
+	SM_WORKERSTATS,
+	SM_REQTXNS,
+	SM_NONE
+};
+
+static const char __maybe_unused *stratum_msgs[] = {
+	"reconnect",
+	"diff",
+	"message",
+	"update",
+	"error",
+	"subscribe",
+	"subscribe.result",
+	"share",
+	"share.result",
+	"auth",
+	"auth.result",
+	"txns",
+	"txns.result",
+	"ping",
+	"workinfo",
+	"suggestdiff",
+	"block",
+	"pong",
+	"transactions",
+	"shareerr",
+	"workerstats",
+	"reqtxns",
+	""
+};
+
+#ifdef USE_CKDB
+#define CKP_STANDALONE(CKP) ((CKP)->standalone == true)
+#else
+#define CKP_STANDALONE(CKP) ((CKP) == (CKP)) /* Always true, silences unused warn */
+#endif
+
+#define SAFE_HASH_OVERHEAD(HASHLIST) (HASHLIST ? HASH_OVERHEAD(hh, HASHLIST) : 0)
+
+void get_timestamp(char *stamp);
+
+ckmsgq_t *create_ckmsgq(ckpool_t *ckp, const char *name, const void *func);
+ckmsgq_t *create_ckmsgqs(ckpool_t *ckp, const char *name, const void *func, const int count);
+bool _ckmsgq_add(ckmsgq_t *ckmsgq, void *data, const char *file, const char *func, const int line);
+#define ckmsgq_add(ckmsgq, data) _ckmsgq_add(ckmsgq, data, __FILE__, __func__, __LINE__)
+bool ckmsgq_empty(ckmsgq_t *ckmsgq);
+unix_msg_t *get_unix_msg(proc_instance_t *pi);
+
+extern ckpool_t *global_ckp;
+
+bool ping_main(ckpool_t *ckp);
+void empty_buffer(connsock_t *cs);
+int set_sendbufsize(ckpool_t *ckp, const int fd, const int len);
+int set_recvbufsize(ckpool_t *ckp, const int fd, const int len);
+int read_socket_line(connsock_t *cs, float *timeout);
+void _queue_proc(proc_instance_t *pi, const char *msg, const char *file, const char *func, const int line);
+#define send_proc(pi, msg) _queue_proc(&(pi), msg, __FILE__, __func__, __LINE__)
+char *_send_recv_proc(const proc_instance_t *pi, const char *msg, int writetimeout, int readtimedout,
+		      const char *file, const char *func, const int line);
+#define send_recv_proc(pi, msg) _send_recv_proc(&(pi), msg, UNIX_WRITE_TIMEOUT, UNIX_READ_TIMEOUT, __FILE__, __func__, __LINE__)
+char *_send_recv_ckdb(const ckpool_t *ckp, const char *msg, const char *file, const char *func, const int line);
+#define send_recv_ckdb(ckp, msg) _send_recv_ckdb(ckp, msg, __FILE__, __func__, __LINE__)
+char *_ckdb_msg_call(const ckpool_t *ckp, const char *msg,  const char *file, const char *func,
+		     const int line);
+#define ckdb_msg_call(ckp, msg) _ckdb_msg_call(ckp, msg, __FILE__, __func__, __LINE__)
+
+json_t *json_rpc_call(connsock_t *cs, const char *rpc_req);
+json_t *json_rpc_response(connsock_t *cs, const char *rpc_req);
+void json_rpc_msg(connsock_t *cs, const char *rpc_req);
+bool send_json_msg(connsock_t *cs, const json_t *json_msg);
+json_t *json_msg_result(const char *msg, json_t **res_val, json_t **err_val);
+
+bool json_get_string(char **store, const json_t *val, const char *res);
+bool json_get_int64(int64_t *store, const json_t *val, const char *res);
+bool json_get_int(int *store, const json_t *val, const char *res);
+bool json_get_double(double *store, const json_t *val, const char *res);
+bool json_get_uint32(uint32_t *store, const json_t *val, const char *res);
+bool json_get_bool(bool *store, const json_t *val, const char *res);
+bool json_getdel_int(int *store, json_t *val, const char *res);
+bool json_getdel_int64(int64_t *store, json_t *val, const char *res);
+
+
+/* API Placeholders for future API implementation */
+typedef struct apimsg apimsg_t;
+
+struct apimsg {
+	char *buf;
+	int sockd;
+};
+
+static inline void ckpool_api(ckpool_t __maybe_unused *ckp, apimsg_t __maybe_unused *apimsg) {};
+static inline json_t *json_encode_errormsg(json_error_t __maybe_unused *err_val) { return NULL; };
+static inline json_t *json_errormsg(const char __maybe_unused *fmt, ...) { return NULL; };
+static inline void send_api_response(json_t __maybe_unused *val, const int __maybe_unused sockd) {};
+
+/* Subclients have client_ids in the high bits. Returns the value of the parent
+ * client if one exists. */
+static inline int64_t subclient(const int64_t client_id)
+{
+	return (client_id >> 32);
+}
+
+#endif /* CKPOOL_H */

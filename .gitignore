@@ -1,0 +1,19 @@
+# Build outputs
+**/build-*/
+**/release-*/
+**/dist/
+**/*.o
+**/*.a
+**/.deps/
+**/.libs/
+**/node_modules/
+**/autom4te.cache/
+**/*.log
+
+# Secrets — never commit
+**/.env
+**/*.env
+!**/*.env.example
+**/hobc-cpu-pool.env
+**/.cookie
+**/rpc.cookie

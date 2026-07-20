@@ -1,0 +1,10 @@
+HobbyHash Coin LLC
+
+Node source components derived from Bitcoin Core are subject to the MIT license
+as stated in node/AL10/COPYING and node/AL9/COPYING.
+
+Pool components retain their upstream licenses (see COPYING / LICENSE files in
+each pool folder) with HobbyHash Coin LLC modifications for HOBC markers,
+census, and HobbyHash network integration.
+
+Documentation in this repository is provided by HobbyHash Coin LLC.

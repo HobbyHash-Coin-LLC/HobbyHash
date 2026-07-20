@@ -1,0 +1,40 @@
+# HobbyHash CPU RandomX stratum pool (mainnet :5559) — V6 multi-algo race.
+#
+# TEMPLATE ONLY. Do NOT install/enable until the V6 rollout is signed off and a
+# V6 (>=16800-capable) node is live on mainnet. The RandomX GBT rule is only
+# honored at/after the multi-algo race activation height (16800), so this pool
+# has nothing to mine before then.
+#
+# Install at rollout:
+#   1. Promote the pool tree to its production path and update WorkingDirectory/ExecStart.
+#   2. Fill /home/hobbyhashcoin/hobbyhash-conf/hobc-cpu-pool.env (see hobc-cpu-pool.env.example).
+#   3. cp this file to /etc/systemd/system/ ; systemctl daemon-reload ; systemctl enable --now hobbyhash-cpu-stratum
+
+[Unit]
+Description=HobbyHash CPU RandomX stratum (mainnet :5559)
+After=network-online.target hobbyhashd-mainnet.service
+Wants=network-online.target hobbyhashd-mainnet.service
+
+[Service]
+Type=simple
+User=hobbyhashcoin
+Group=hobbyhashcoin
+WorkingDirectory=/home/hobbyhashcoin/V6/pool/hobc-cpu-randomx
+# RPC creds, POOL_ADDRESS, HOBC_POOL_ID and HOBC_CENSUS_TOKEN come from the env file:
+EnvironmentFile=/home/hobbyhashcoin/hobbyhash-conf/hobc-cpu-pool.env
+# Stable per-channel defaults (operator may override in the env file):
+Environment=STRATUM_PORT=5559
+Environment=HOBC_ALGO=2
+Environment=HOBC_MARKER=1
+Environment=HOBC_POOL_NAME=HOBC CPU (RandomX)
+Environment=STATS_LOG_DIR=/home/hobbyhashcoin/hobbyhash-logs/hobc-cpu
+Environment=BLOCKS_STATE_FILE=/home/hobbyhashcoin/hobbyhash-data/mainnet/payoutd-cpu-state.json
+Environment=POLL_MS=1000
+ExecStart=/usr/bin/node /home/hobbyhashcoin/V6/pool/hobc-cpu-randomx/hobc-cpu-randomx-server.js
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/home/hobbyhashcoin/hobbyhash-logs/hobc-cpu/stratum.log
+StandardError=append:/home/hobbyhashcoin/hobbyhash-logs/hobc-cpu/stratum.log
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,35 @@
+FROM almalinux:9
+
+RUN set -eux; \
+    dnf -y install epel-release dnf-plugins-core; \
+    dnf config-manager --set-enabled crb || true; \
+    dnf -y install \
+      gcc \
+      gcc-c++ \
+      make \
+      cmake \
+      ninja-build \
+      pkgconf \
+      python3 \
+      diffutils \
+      which \
+      tar \
+      gzip \
+      xz \
+      git \
+      patch \
+      boost-devel \
+      openssl-devel \
+      libevent-devel \
+      sqlite-devel \
+      zeromq-devel \
+      miniupnpc-devel \
+      qrencode-devel \
+      systemtap-sdt-devel \
+      libstdc++-static \
+      glibc-static; \
+    dnf clean all
+
+WORKDIR /workspace
+
+CMD ["/bin/bash"]

@@ -2107,6 +2107,37 @@ share_diff(char *coinbase, const uchar *enonce1bin, const workbase_t *wb, const 
 	sha256(swap, 80, hash1);
 	sha256(hash1, 32, hash);
 
+	/* Some firmwares (notably LuxOS) drop BIP34 version bit 0x4 when
+	 * AsicBoost-rolling, hashing 0x20xxxxxx instead of 0x20000004|rolled.
+	 * Dual-hash both candidates and keep the higher share diff so Bitaxe
+	 * (keeps 0x4) and LuxOS (drops 0x4) both validate. */
+	if (use_version_bits) {
+		double primary_diff, alt_diff;
+		uchar hash_alt[32], swap_alt[80], hash1_alt[32];
+		char data_alt[80];
+		uint32_t alt_version;
+
+		primary_diff = diff_from_target(hash);
+		memcpy(data_alt, data, 80);
+		alt_version = (base_version & ~0x4U) | (version_bits & 0x1fffe000U);
+		if (alt_version != rolled_version) {
+			data32 = (uint32_t *)data_alt;
+			*data32 = htobe32(alt_version);
+			data32 = (uint32_t *)data_alt;
+			swap32 = (uint32_t *)swap_alt;
+			flip_80(swap32, data32);
+			sha256(swap_alt, 80, hash1_alt);
+			sha256(hash1_alt, 32, hash_alt);
+			alt_diff = diff_from_target(hash_alt);
+			if (alt_diff > primary_diff) {
+				memcpy(hash, hash_alt, 32);
+				memcpy(swap, swap_alt, 80);
+				return alt_diff;
+			}
+		}
+		return primary_diff;
+	}
+
 	/* Calculate the diff of the share here */
 	return diff_from_target(hash);
 }

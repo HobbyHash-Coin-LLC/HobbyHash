@@ -13,6 +13,9 @@ Each tree is a full ckpool-based source with HobbyHash Coin LLC patches for:
 - **HOBC coinbase markers** (`src/hobc_marker.c`)
 - Per-worker / rig identity in the marker
 - **Network census** heartbeats (`submitcensus`)
+- **LuxOS / AsicBoost share validation** (dual-hash BIP34 bit `0x4` — see [`CHANGES.md`](CHANGES.md))
+
+**Change log:** [`CHANGES.md`](CHANGES.md) (last updated **2026-07-21 01:40 UTC**).
 
 ---
 

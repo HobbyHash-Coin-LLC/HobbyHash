@@ -1485,6 +1485,10 @@ static void parse_config(ckpool_t *ckp)
 			ckp->hobc_algo = 0;
 		}
 		json_get_string(&ckp->hobc_census_token, json_conf, "hobc_census_token");
+		ckp->hobc_census_hub = true;
+		if (json_object_get(json_conf, "hobc_census_hub"))
+			json_get_bool(&ckp->hobc_census_hub, json_conf, "hobc_census_hub");
+		json_get_string(&ckp->hobc_census_url, json_conf, "hobc_census_url");
 	}
 	json_get_int(&ckp->blockpoll, json_conf, "blockpoll");
 	json_get_int(&ckp->nonce1length, json_conf, "nonce1length");

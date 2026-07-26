@@ -15,7 +15,11 @@
  *
  * Env config: RPC_HOST RPC_PORT RPC_USER RPC_PASS POOL_ADDRESS STRATUM_PORT
  *   HOBC_MARKER=1 HOBC_POOL_ID HOBC_ALGO=2 HOBC_POOL_SITE HOBC_POOL_NAME
- *   HOBC_CENSUS_TOKEN POLL_MS SHARE_DIVISOR
+ *   HOBC_CENSUS_TOKEN (optional local node) HOBC_CENSUS_HUB=1 HOBC_CENSUS_URL
+ *   POLL_MS SHARE_DIVISOR
+ *
+ * Census heartbeats auto-POST to the HobbyHash HTTPS hub by default (no operator
+ * census URL/token setup). Optional local-node submitcensus when token is set.
  */
 
 // HOBC_ALGO must be set before requiring transactions.js (it reads env at load).
@@ -24,6 +28,7 @@ if (process.env.HOBC_MARKER === undefined) process.env.HOBC_MARKER = '1';
 
 const net = require('net');
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const bignum = require('bignum');
@@ -52,11 +57,37 @@ function diffFromTarget(targetBn) {
     }
 }
 
+function readRpcAuth() {
+    if (process.env.RPC_USER && process.env.RPC_PASS) {
+        return { user: process.env.RPC_USER, password: process.env.RPC_PASS };
+    }
+    const cookieFile = process.env.RPC_COOKIE
+        || '/home/hobbyhashcoin/hobbyhash-data/mainnet/.cookie';
+    if (fs.existsSync(cookieFile)) {
+        const cookie = fs.readFileSync(cookieFile, 'utf8').trim();
+        const parts = cookie.split(':');
+        return { user: parts[0], password: parts.slice(1).join(':') };
+    }
+    const mainConf = '/home/hobbyhashcoin/hobbyhash-conf/hobbyhash-mainnet.conf';
+    if (fs.existsSync(mainConf)) {
+        const conf = fs.readFileSync(mainConf, 'utf8');
+        const userMatch = conf.match(/^rpcuser=(.+)$/m);
+        const passMatch = conf.match(/^rpcpassword=(.+)$/m);
+        if (userMatch && passMatch) {
+            return { user: userMatch[1].trim(), password: passMatch[1].trim() };
+        }
+    }
+    console.error('FATAL: RPC auth missing (set RPC_USER/RPC_PASS or provide .cookie)');
+    process.exit(1);
+}
+
+const rpcAuth = readRpcAuth();
+
 const CFG = {
     rpcHost: process.env.RPC_HOST || '127.0.0.1',
     rpcPort: parseInt(process.env.RPC_PORT || '19889', 10),
-    rpcUser: process.env.RPC_USER || 'rt',
-    rpcPass: process.env.RPC_PASS || 'rtpass123',
+    rpcUser: rpcAuth.user,
+    rpcPass: rpcAuth.password,
     poolAddress: process.env.POOL_ADDRESS || '',
     stratumPort: parseInt(process.env.STRATUM_PORT || '5559', 10),
     pollMs: parseInt(process.env.POLL_MS || '1000', 10),
@@ -67,6 +98,9 @@ const CFG = {
     poolSite: process.env.HOBC_POOL_SITE || '',
     censusToken: process.env.HOBC_CENSUS_TOKEN || '',
     censusMs: parseInt(process.env.HOBC_CENSUS_INTERVAL_MS || '60000', 10),
+    censusHub: String(process.env.HOBC_CENSUS_HUB || '1').trim() !== '0',
+    censusUrl: String(process.env.HOBC_CENSUS_URL || 'https://hobbyhashcoin.com/api/network/census/submit/').trim()
+        || 'https://hobbyhashcoin.com/api/network/census/submit/',
     logDir: process.env.LOG_DIR || path.join(__dirname, 'logs'),
     // Public-stats sharelog/pool.status tree consumed by pool_stats_collector.py (pool id 'cpu').
     statsLogDir: process.env.STATS_LOG_DIR || '/home/hobbyhashcoin/hobbyhash-logs/hobc-cpu',
@@ -159,6 +193,21 @@ function buildBlobPrefix(tmpl, merkleRootHex) {
 
 function minerBindForClient(tmpl, client) {
     return tmpl.bindMiner(client.worker || '', client.userAgent || '');
+}
+
+// ckpool / KPSS sharelog convention: workername = ADDRESS.WORKER so the public
+// pool page can mask the address (HOBC:last5) while keeping the full worker label.
+// Coinbase marker binding still uses the bare worker label above.
+function statsWorkerName(client) {
+    const addr = String((client && client.address) || '').trim();
+    const worker = String((client && client.worker) || 'rxminer').trim() || 'rxminer';
+    if (!addr) {
+        return worker;
+    }
+    if (worker === addr || worker.startsWith(addr + '.')) {
+        return worker;
+    }
+    return addr + '.' + worker;
 }
 
 async function refreshTemplate(force) {
@@ -277,13 +326,13 @@ async function handleSubmit(client, id, params) {
     }
     if (res.hash !== submittedHash) {
         shareLog({ t: Date.now(), worker: client.worker, addr: client.address, nonce, ok: false, reason: 'hash-mismatch' });
-        shareLogger.writeShare({ worker: client.worker, ip: client.ip, shareDigest: submittedHash }, false);
+        shareLogger.writeShare({ worker: statsWorkerName(client), ip: client.ip, shareDigest: submittedHash }, false);
         return reply({ ok: false, error: 'hash mismatch' });
     }
     const hashInt = bignum(submittedHash, 16);
     if (hashInt.gt(job.shareTargetInt)) {
         shareLog({ t: Date.now(), worker: client.worker, addr: client.address, nonce, ok: false, reason: 'above-share-target' });
-        shareLogger.writeShare({ worker: client.worker, ip: client.ip, shareDigest: submittedHash }, false);
+        shareLogger.writeShare({ worker: statsWorkerName(client), ip: client.ip, shareDigest: submittedHash }, false);
         return reply({ ok: false, error: 'above share target' });
     }
 
@@ -300,7 +349,7 @@ async function handleSubmit(client, id, params) {
     acceptedShareDiffSum += (isFinite(assignedDiffVal) && assignedDiffVal > 0) ? assignedDiffVal : 0;
     shareLog({ t: Date.now(), worker: client.worker, addr: client.address, nonce, ok: true, block: !!res.meets_bits, hash: submittedHash });
     shareLogger.writeShare({
-        worker: client.worker,
+        worker: statsWorkerName(client),
         ip: client.ip,
         difficulty: assignedDiffVal,
         shareDiff: shareDiffVal,
@@ -322,8 +371,8 @@ async function handleSubmit(client, id, params) {
             const sub = await rpc('submitblock', [blockHex]);
             if (sub === null) {
                 isBlock = true; blocksFound++;
-                shareLogger.recordBlock({ worker: client.worker, height: job.height, blockHash: submittedHash });
-                log('special', `*** RANDOMX BLOCK ACCEPTED height=${job.height} by ${client.worker} nonce=${nonce} ***`);
+                shareLogger.recordBlock({ worker: statsWorkerName(client), height: job.height, blockHash: submittedHash });
+                log('special', `*** RANDOMX BLOCK ACCEPTED height=${job.height} by ${statsWorkerName(client)} nonce=${nonce} ***`);
                 // Canonical solve line consumed by payoutd (SOLVE_RE). Winner = payout
                 // address (before first dot), matching the GPU pool convention so the
                 // CPU payout daemon auto-detects and pays RandomX block solvers.
@@ -384,22 +433,45 @@ const server = net.createServer((socket) => {
 });
 
 /* ---------- census heartbeat ---------- */
+function postCensusHub(report) {
+    if (!CFG.censusHub) return Promise.resolve();
+    let u;
+    try { u = new URL(CFG.censusUrl); } catch (e) {
+        log('warning', 'census hub: bad URL');
+        return Promise.resolve();
+    }
+    if (u.protocol !== 'https:') {
+        log('warning', 'census hub: https required');
+        return Promise.resolve();
+    }
+    const body = JSON.stringify({
+        jsonrpc: '1.0', id: 'cpu-census-hub', method: 'submitcensus',
+        params: ['', CFG.poolId, report],
+    });
+    return new Promise((resolve) => {
+        const req = https.request({
+            hostname: u.hostname,
+            port: u.port || 443,
+            path: u.pathname + (u.search || ''),
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+            timeout: 4000,
+        }, (res) => { res.on('data', () => {}); res.on('end', () => resolve()); });
+        req.on('timeout', () => { req.destroy(); resolve(); });
+        req.on('error', (e) => { log('warning', 'census hub failed: ' + e.message); resolve(); });
+        req.write(body);
+        req.end();
+    });
+}
+
 async function sendCensus() {
-    if (!CFG.censusToken) return;
-    const now = Date.now();
-    // hashrate estimate: accepted-share difficulty over the interval * 2^0 ... derive from share target.
-    // shares * (network_difficulty scaled) is complex; use accepted share diff sum * 2^32 / interval as a coarse H/s.
     const workers = new Set(); const miners = new Set();
     for (const c of clients.values()) { if (c.authorized) { workers.add(c.worker + '@' + c.address); miners.add(c.address); } }
-    // Coarse hashrate from accepted shares against the share target difficulty.
-    let shareDiff = 1;
-    try { shareDiff = util.kawpowNetworkDifficultyFromTargetHex ? 1 : 1; } catch (e) {}
     const hashps = (acceptedShareDiffSum * Math.pow(2, 32)) / (CFG.censusMs / 1000);
     acceptedShareDiffSum = 0;
 
     // Field names MUST match the node submitcensus parser (ParseAlgoReport in
-    // src/rpc/telemetry.cpp): hashrate / unique_miners / workers. Using hashps/miners
-    // here silently drops the CPU pool's hashrate and miner count from getnetworkstats.
+    // src/rpc/telemetry.cpp): hashrate / unique_miners / workers.
     const report = {
         pool_name: CFG.poolName,
         pool_site: CFG.poolSite,
@@ -407,10 +479,13 @@ async function sendCensus() {
         sha256: { hashrate: 0, unique_miners: 0, workers: 0 },
         kawpow: { hashrate: 0, unique_miners: 0, workers: 0 },
     };
-    try {
-        await rpc('submitcensus', [CFG.censusToken, CFG.poolId, report]);
-    } catch (e) {
-        log('warning', 'submitcensus failed: ' + e.message);
+    await postCensusHub(report);
+    if (CFG.censusToken) {
+        try {
+            await rpc('submitcensus', [CFG.censusToken, CFG.poolId, report]);
+        } catch (e) {
+            log('warning', 'submitcensus local failed: ' + e.message);
+        }
     }
 }
 
@@ -420,4 +495,5 @@ server.listen(CFG.stratumPort, () => {
 });
 refreshTemplate(true);
 setInterval(() => refreshTemplate(false), CFG.pollMs);
-if (CFG.censusToken) setInterval(sendCensus, CFG.censusMs);
+setInterval(sendCensus, CFG.censusMs);
+log('info', `HOBC census auto-hub=${CFG.censusHub ? 'on' : 'off'} local_token=${CFG.censusToken ? 'on' : 'off'} every ${CFG.censusMs / 1000}s`);

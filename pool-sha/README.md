@@ -15,7 +15,7 @@ Each tree is a full ckpool-based source with HobbyHash Coin LLC patches for:
 - **Network census** heartbeats (`submitcensus`)
 - **LuxOS / AsicBoost share validation** (dual-hash BIP34 bit `0x4` — see [`CHANGES.md`](CHANGES.md))
 
-**Change log:** [`CHANGES.md`](CHANGES.md) (last updated **2026-07-21 01:40 UTC**).
+**Change log:** [`CHANGES.md`](CHANGES.md) (last updated **2026-07-26 19:25 UTC**).
 
 ---
 
@@ -78,8 +78,7 @@ Repeat the same commands inside `hobc-nano` or `hobc-pplns` if you need those fl
   "hobc_marker": 1,
   "hobc_pool_id": 1,
   "hobc_algo": 0,
-  "hobc_pool_site": "your.pool.domain.example",
-  "hobc_census_token": "YOUR_CENSUS_TOKEN_OR_EMPTY"
+  "hobc_pool_site": "your.pool.domain.example"
 }
 ```
 
@@ -87,7 +86,7 @@ Notes:
 
 - Point `btcdurl` at a synced HobbyHash **v31.1.0** node.
 - Solo payouts use the worker name address (standard HobbyHash solo pattern).
-- Leave `hobc_census_token` empty to disable census, or use a real token issued for your node.
+- **Census:** by default the pool auto-POSTs heartbeats to the HobbyHash hub (`hobc_census_hub` defaults true). No census token or public RPC is required. Optional `hobc_census_token` is only for also submitting to your **local** node. Set `"hobc_census_hub": false` to disable the hub. Install `curl` on the pool host.
 
 ### 4) Run
 

@@ -264,7 +264,9 @@ struct ckpool_instance {
 	int hobc_pool_id; // Numeric pool id stamped into the marker
 	int hobc_algo;    // 0=sha256 1=kawpow 2=randomx (this pool's algo)
 	char *hobc_pool_site; // Pool website/IP for the marker (<=24 bytes)
-	char *hobc_census_token; // Shared secret for node submitcensus (empty = census emit off)
+	char *hobc_census_token; // Optional local-node submitcensus token (empty = local census off)
+	bool hobc_census_hub; // Auto-POST census to HobbyHash hub (default true)
+	char *hobc_census_url; // Override hub URL (empty = default hobbyhashcoin.com hub)
 
 	/* Stratum options */
 	server_instance_t **servers;

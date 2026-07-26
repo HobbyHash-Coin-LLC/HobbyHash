@@ -9043,22 +9043,70 @@ static worker_instance_t *next_worker(sdata_t *sdata, user_instance_t *user, wor
 	return worker;
 }
 
-/* HOBC V6: push an authenticated per-minute census heartbeat to the node (submitcensus RPC),
- * reusing the configured bitcoind RPC endpoint. Best-effort: any failure is logged and ignored,
- * never blocking or affecting stats. Enabled only when hobc_census_token is configured. */
+/* HOBC V6: per-minute census heartbeat.
+ * 1) By default POST to the HobbyHash HTTPS census hub (no operator token/URL required).
+ * 2) Optionally also POST to the local node when hobc_census_token is set.
+ * Best-effort: failures are logged and ignored; never blocks mining stats. */
 static time_t hobc_last_census;
+
+static void hobc_json_escape_field(char *dst, size_t dstlen, const char *src)
+{
+	size_t o = 0;
+	if (!dst || dstlen == 0)
+		return;
+	dst[0] = '\0';
+	if (!src)
+		return;
+	for (; *src && o + 1 < dstlen; src++) {
+		unsigned char c = (unsigned char)*src;
+		if (c < 0x20 || c > 0x7e || c == '"' || c == '\\')
+			continue;
+		dst[o++] = (char)c;
+	}
+	dst[o] = '\0';
+}
+
+/* Best-effort HTTPS POST via curl CLI (ckpool is not linked with libcurl). */
+static bool hobc_census_hub_post(const char *url, const char *body)
+{
+	char template[] = "/tmp/hobc-census-XXXXXX";
+	char cmd[1024];
+	int fd;
+	FILE *fp;
+	int rc;
+
+	if (!url || !url[0] || !body)
+		return false;
+	fd = mkstemp(template);
+	if (fd < 0)
+		return false;
+	if (write(fd, body, strlen(body)) != (ssize_t)strlen(body)) {
+		close(fd);
+		unlink(template);
+		return false;
+	}
+	close(fd);
+	snprintf(cmd, sizeof(cmd),
+		 "curl -sS -m 4 -X POST -H 'Content-Type: application/json' "
+		 "--data-binary @%s '%s' >/dev/null 2>&1",
+		 template, url);
+	rc = system(cmd);
+	unlink(template);
+	return rc == 0;
+}
+
 static void hobc_maybe_send_census(ckpool_t *ckp, double hashrate, int users, int workers, tv_t *now)
 {
 	connsock_t cs;
-	char *userpass = NULL, *req = NULL;
+	char *userpass = NULL, *req = NULL, *hub_req = NULL;
 	const char *algostr;
+	const char *hub_url;
 	json_t *val;
+	char name_esc[192];
+	char site_esc[64];
+	bool sent = false;
 
-	if (!ckp->hobc_census_token || !ckp->hobc_census_token[0])
-		return;
 	if (hobc_last_census && now->tv_sec - hobc_last_census < 60)
-		return;
-	if (!ckp->btcds || !ckp->btcdurl || !ckp->btcdurl[0] || !ckp->btcdauth || !ckp->btcdpass)
 		return;
 
 	switch (ckp->hobc_algo) {
@@ -9066,50 +9114,80 @@ static void hobc_maybe_send_census(ckpool_t *ckp, double hashrate, int users, in
 		case 2: algostr = "randomx"; break;
 		default: algostr = "sha256"; break;
 	}
+	hobc_json_escape_field(name_esc, sizeof(name_esc), ckp->name ? ckp->name : "");
+	hobc_json_escape_field(site_esc, sizeof(site_esc), ckp->hobc_pool_site ? ckp->hobc_pool_site : "");
 
-	memset(&cs, 0, sizeof(cs));
-	cs.ckp = ckp;
-	/* _json_rpc_call() serialises every request on cs.sem and opens/closes its OWN
-	 * socket. This stack connsock therefore MUST have its semaphore initialised, or
-	 * the first cksem_wait() inside _json_rpc_call() blocks on a zeroed sem forever,
-	 * freezing the statsupdate thread and leaking the connection (seen as a CLOSE_WAIT
-	 * socket to the node). Do NOT pre-connect here; _json_rpc_call() does the connect.
-	 * cksem_init() seeds the sem to 0 (sem_init(...,0,0)); post once so the count is 1
-	 * and the first cksem_wait() acquires it, mirroring connector.c/generator.c setup. */
-	cksem_init(&cs.sem);
-	cksem_post(&cs.sem);
-	if (!extract_sockaddr(ckp->btcdurl[0], &cs.url, &cs.port)) {
-		LOGWARNING("HOBC census: failed to parse btcdurl %s", ckp->btcdurl[0]);
-		return;
+	/* 1) Automatic HobbyHash hub heartbeat (default on). */
+	if (ckp->hobc_census_hub) {
+		hub_url = (ckp->hobc_census_url && ckp->hobc_census_url[0])
+			? ckp->hobc_census_url
+			: "https://hobbyhashcoin.com/api/network/census/submit/";
+		/* Reject shell metacharacters in override URL (passed to curl via system()). */
+		for (const char *p = hub_url; *p; p++) {
+			unsigned char c = (unsigned char)*p;
+			if (c <= 0x20 || c > 0x7e || c == '\'' || c == '"' || c == '`' ||
+			    c == '$' || c == ';' || c == '|' || c == '&' || c == '<' ||
+			    c == '>' || c == '(' || c == ')' || c == '{' || c == '}') {
+				hub_url = "https://hobbyhashcoin.com/api/network/census/submit/";
+				LOGWARNING("HOBC census hub: unsafe hobc_census_url ignored, using default");
+				break;
+			}
+		}
+		ASPRINTF(&hub_req, "{\"method\":\"submitcensus\",\"params\":[\"\",%d,"
+			 "{\"pool_name\":\"%s\",\"pool_site\":\"%s\","
+			 "\"%s\":{\"hashrate\":%f,\"unique_miners\":%d,\"workers\":%d}}]}",
+			 ckp->hobc_pool_id, name_esc, site_esc,
+			 algostr, hashrate, users, workers);
+		if (hub_req && hobc_census_hub_post(hub_url, hub_req)) {
+			sent = true;
+			LOGINFO("HOBC census hub sent: pool %d %s %.0f H/s %d miners %d workers",
+				ckp->hobc_pool_id, algostr, hashrate, users, workers);
+		} else
+			LOGDEBUG("HOBC census hub: no response");
+		dealloc(hub_req);
 	}
-	userpass = strdup(ckp->btcdauth[0]);
-	realloc_strcat(&userpass, ":");
-	realloc_strcat(&userpass, ckp->btcdpass[0]);
-	cs.auth = http_base64(userpass);
-	dealloc(userpass);
-	if (!cs.auth)
-		goto out_free;
 
-	ASPRINTF(&req, "{\"method\": \"submitcensus\", \"params\": [\"%s\", %d, "
-		 "{\"pool_name\": \"%s\", \"pool_site\": \"%s\", "
-		 "\"%s\": {\"hashrate\": %f, \"unique_miners\": %d, \"workers\": %d}}]}\n",
-		 ckp->hobc_census_token, ckp->hobc_pool_id,
-		 ckp->name ? ckp->name : "",
-		 ckp->hobc_pool_site ? ckp->hobc_pool_site : "",
-		 algostr, hashrate, users, workers);
-	val = json_rpc_call(&cs, req);
-	if (val) {
-		json_decref(val);
+	/* 2) Optional local-node census when token configured. */
+	if (ckp->hobc_census_token && ckp->hobc_census_token[0]
+	    && ckp->btcds && ckp->btcdurl && ckp->btcdurl[0]
+	    && ckp->btcdauth && ckp->btcdpass) {
+		memset(&cs, 0, sizeof(cs));
+		cs.ckp = ckp;
+		cksem_init(&cs.sem);
+		cksem_post(&cs.sem);
+		if (!extract_sockaddr(ckp->btcdurl[0], &cs.url, &cs.port)) {
+			LOGWARNING("HOBC census: failed to parse btcdurl %s", ckp->btcdurl[0]);
+		} else {
+			userpass = strdup(ckp->btcdauth[0]);
+			realloc_strcat(&userpass, ":");
+			realloc_strcat(&userpass, ckp->btcdpass[0]);
+			cs.auth = http_base64(userpass);
+			dealloc(userpass);
+			if (cs.auth) {
+				ASPRINTF(&req, "{\"method\": \"submitcensus\", \"params\": [\"%s\", %d, "
+					 "{\"pool_name\": \"%s\", \"pool_site\": \"%s\", "
+					 "\"%s\": {\"hashrate\": %f, \"unique_miners\": %d, \"workers\": %d}}]}\n",
+					 ckp->hobc_census_token, ckp->hobc_pool_id,
+					 name_esc, site_esc,
+					 algostr, hashrate, users, workers);
+				val = json_rpc_call(&cs, req);
+				if (val) {
+					json_decref(val);
+					sent = true;
+					LOGINFO("HOBC census local sent: pool %d %s %.0f H/s %d miners %d workers",
+						ckp->hobc_pool_id, algostr, hashrate, users, workers);
+				} else
+					LOGDEBUG("HOBC census: no response from node");
+				dealloc(req);
+			}
+			dealloc(cs.url);
+			dealloc(cs.port);
+			dealloc(cs.auth);
+		}
+	}
+
+	if (sent)
 		hobc_last_census = now->tv_sec;
-		LOGINFO("HOBC census sent: pool %d %s %.0f H/s %d miners %d workers",
-			ckp->hobc_pool_id, algostr, hashrate, users, workers);
-	} else
-		LOGDEBUG("HOBC census: no response from node");
-	dealloc(req);
-out_free:
-	dealloc(cs.url);
-	dealloc(cs.port);
-	dealloc(cs.auth);
 }
 
 static void *statsupdate(void *arg)

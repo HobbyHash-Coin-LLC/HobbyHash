@@ -1,10 +1,23 @@
 # HobbyHash SHA pools (ckpool) — source changes
 
 **Publisher:** HobbyHash Coin LLC  
-**Document updated:** 2026-07-21 01:40 UTC  
+**Document updated:** 2026-07-26 19:25 UTC  
 **Trees:** `pool-sha/hobc-main/`, `pool-sha/hobc-nano/`, `pool-sha/hobc-pplns/`
 
 This document records HobbyHash Coin LLC patches on top of upstream ckpool and why they exist.
+
+---
+
+## 2026-07-26 19:25 UTC — Automatic HobbyHash census hub heartbeats
+
+| File | Change | Why |
+|------|--------|-----|
+| `hobc-main/src/ckpool.h`, `ckpool.c` (and nano/pplns) | Add `hobc_census_hub` (default **true**) and optional `hobc_census_url` override. `hobc_census_token` remains optional for **local-node** `submitcensus` only. | Outside pools must appear in HobbyHash live census without operators configuring a census token or RPC firewall opening. |
+| `hobc-main/src/stratifier.c` (and nano/pplns) | By default POST `submitcensus` once per minute to `https://hobbyhashcoin.com/api/network/census/submit/` via the system `curl` CLI. Hub ignores client tokens; HobbyHash injects with the server token. Optional local-node path kept when `hobc_census_token` is set. | Mining RPC stays on local `btcd` / `btcdurl`; census is a separate HTTPS heartbeat. No node rebuild and no public `18762`. |
+
+**Operator note:** rebuild `ckpool` and restart. Ensure `curl` is installed. Set `hobc_pool_site` / `hobc_pool_id` correctly. Set `"hobc_census_hub": false` only if you must disable public reporting.
+
+**Scope:** census emit path only. Marker encoding, share validation, and payout behavior unchanged.
 
 ---
 

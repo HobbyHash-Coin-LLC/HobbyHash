@@ -164,14 +164,19 @@ pool.on('share', (isValidShare, isValidBlock, data) => {
   }
 });
 
-// HOBC V6: authenticated per-minute network census heartbeat to the node (submitcensus RPC).
-// Best-effort — any error is logged and ignored. Enabled only when HOBC_CENSUS_TOKEN is set.
+// HOBC V6: per-minute census heartbeat.
+// By default POSTs to the HobbyHash HTTPS census hub (no operator token/URL setup).
+// Optional local-node submitcensus when HOBC_CENSUS_TOKEN is set. Mining RPC stays local.
+const https = require('https');
 const HOBC_CENSUS_TOKEN = String(process.env.HOBC_CENSUS_TOKEN || '');
 const HOBC_POOL_ID = parseInt(process.env.HOBC_POOL_ID || '0', 10) & 0xff;
 const HOBC_POOL_SITE = String(process.env.HOBC_POOL_SITE || '');
 const HOBC_CENSUS_INTERVAL_MS = 60000;
+const HOBC_CENSUS_HUB = String(process.env.HOBC_CENSUS_HUB || '1').trim() !== '0';
+const HOBC_CENSUS_URL = String(process.env.HOBC_CENSUS_URL || 'https://hobbyhashcoin.com/api/network/census/submit/').trim() || 'https://hobbyhashcoin.com/api/network/census/submit/';
 
-function submitCensusRpc(reportObj) {
+function submitCensusLocal(reportObj) {
+  if (!HOBC_CENSUS_TOKEN) return;
   const body = JSON.stringify({
     jsonrpc: '1.0', id: 'kpss-census', method: 'submitcensus',
     params: [HOBC_CENSUS_TOKEN, HOBC_POOL_ID, reportObj],
@@ -183,13 +188,35 @@ function submitCensusRpc(reportObj) {
     timeout: 4000,
   }, (res) => { res.on('data', () => {}); res.on('end', () => {}); });
   req.on('timeout', () => { req.destroy(new Error('submitcensus RPC timeout')); });
-  req.on('error', (err) => { console.log('HOBC census error:', err.message || err); });
+  req.on('error', (err) => { console.log('HOBC census local error:', err.message || err); });
+  req.write(body);
+  req.end();
+}
+
+function submitCensusHub(reportObj) {
+  if (!HOBC_CENSUS_HUB) return;
+  let u;
+  try { u = new URL(HOBC_CENSUS_URL); } catch (e) { console.log('HOBC census hub: bad URL'); return; }
+  if (u.protocol !== 'https:') { console.log('HOBC census hub: https required'); return; }
+  const body = JSON.stringify({
+    jsonrpc: '1.0', id: 'kpss-census-hub', method: 'submitcensus',
+    params: ['', HOBC_POOL_ID, reportObj],
+  });
+  const req = https.request({
+    hostname: u.hostname,
+    port: u.port || 443,
+    path: u.pathname + (u.search || ''),
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+    timeout: 4000,
+  }, (res) => { res.on('data', () => {}); res.on('end', () => {}); });
+  req.on('timeout', () => { req.destroy(new Error('submitcensus hub timeout')); });
+  req.on('error', (err) => { console.log('HOBC census hub error:', err.message || err); });
   req.write(body);
   req.end();
 }
 
 function emitHobcCensus() {
-  if (!HOBC_CENSUS_TOKEN) return;
   const hashrate = (hobcShareDiffSum * Math.pow(2, 32)) / (HOBC_CENSUS_INTERVAL_MS / 1000);
   hobcShareDiffSum = 0;
   let workers = 0;
@@ -205,17 +232,16 @@ function emitHobcCensus() {
     }
   } catch (e) { /* fail open */ }
   const report = {
-    pool_name: 'HobbyHash GPU (KPSS)',
+    pool_name: process.env.HOBC_POOL_NAME || 'HobbyHash GPU (KPSS)',
     pool_site: HOBC_POOL_SITE,
     kawpow: { hashrate, unique_miners: miners.size, workers },
   };
-  submitCensusRpc(report);
+  submitCensusHub(report);
+  submitCensusLocal(report);
 }
 
-if (HOBC_CENSUS_TOKEN) {
-  setInterval(emitHobcCensus, HOBC_CENSUS_INTERVAL_MS).unref();
-  console.log(`HOBC census enabled (pool ${HOBC_POOL_ID}, kawpow, every ${HOBC_CENSUS_INTERVAL_MS / 1000}s)`);
-}
+setInterval(emitHobcCensus, HOBC_CENSUS_INTERVAL_MS).unref();
+console.log(`HOBC census auto-hub=${HOBC_CENSUS_HUB ? 'on' : 'off'} local_token=${HOBC_CENSUS_TOKEN ? 'on' : 'off'} (pool ${HOBC_POOL_ID}, kawpow, every ${HOBC_CENSUS_INTERVAL_MS / 1000}s)`);
 
 pool.on('log', (severity, logKey, logText) => {
   console.log(`${severity}: [${logKey}] ${logText}`);

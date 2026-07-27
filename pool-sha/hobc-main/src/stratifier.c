@@ -7368,12 +7368,20 @@ static void suggest_diff(ckpool_t *ckp, stratum_instance_t *client, const char *
 static void init_client(const stratum_instance_t *client, const int64_t client_id)
 {
 	sdata_t *sdata = client->sdata;
+	ckpool_t *ckp = sdata->ckp;
 
 	stratum_send_diff(sdata, client);
 	/* During a GPU/KawPow window, withhold work from newly subscribed SHA
 	 * miners so they stay connected but idle (no wasted hashing). The
 	 * window-end broadcast hands them fresh work automatically. */
 	if (unlikely(sdata->gpu_idle_window))
+		return;
+	/* Per-client coinb2 (hobc_marker / direct_worker_payout) stamps the
+	 * worker identity into the job. Before mining.authorize the worker
+	 * field is blank; sending that template makes firmwares (notably LuxOS)
+	 * hash work the pool later validates with the named worker → mass
+	 * "Above target". Wait for auth; sauth_process sends the real job. */
+	if ((ckp->hobc_marker || ckp->direct_worker_payout) && !client->authorised)
 		return;
 	stratum_send_update(sdata, client_id, true);
 }
@@ -7513,21 +7521,26 @@ static void parse_method(ckpool_t *ckp, sdata_t *sdata, stratum_instance_t *clie
 						mask = "1fffe000";
 					if (!minbit)
 						minbit = 16;
-					/* HOBC V6: never grant version-rolling of the HOBC-reserved
-					 * bits. Bit 28 (0x10000000) is part of the SHA base version
+					/* HOBC V6: never grant version-rolling of bit 28
+					 * (0x10000000). It is part of the SHA base version
 					 * 0x30000000 and must stay set via the base (a miner that
 					 * cleared it would produce a non-SHA version and, because
 					 * firmware only re-supplies rolled bits, would desync from the
-					 * pool's header). Bits 17 (0x20000, KawPow) and 18 (0x40000,
-					 * RandomX) are the algo-signal bits and must stay clear so a
-					 * SHA block solve is not misclassified by the coinbase-marker/
-					 * header-algo consensus check at/after the multi-algo race
-					 * activation height. Intersect with the standard BIP320 domain
-					 * and clear bits 28, 18 and 17. */
+					 * pool's header).
+					 *
+					 * Bits 17 (0x20000) and 18 (0x40000) ARE granted. They are the
+					 * KawPow/RandomX algo-signal bits, but consensus classifies a
+					 * header by extended-field presence (nNonce64/mixHash), not by
+					 * those bits — see AlgoFromVersionFields() — so a SHA solve that
+					 * rolled them still validates as SHA. Withholding them desynced
+					 * LuxOS firmware, which rolls the full BIP320 domain regardless
+					 * of the granted mask but reports version_bits masked to the
+					 * grant, so the pool rebuilt a different header and rejected
+					 * ~85% of its shares as "Above target". */
 					uint32_t mask32 = 0;
 					sscanf(mask, "%x", &mask32);
 					mask32 &= 0x1fffe000U;
-					mask32 &= ~0x10060000U;
+					mask32 &= ~0x10000000U;
 					char hobc_maskbuf[16];
 					snprintf(hobc_maskbuf, sizeof(hobc_maskbuf), "%08x", mask32);
 					json_object_set_new_nocheck(result_val, "version-rolling.mask",
@@ -8696,6 +8709,12 @@ static void sauth_process(ckpool_t *ckp, json_params_t *jp)
 		client->dropped = true;
 		goto out;
 	}
+
+	/* HOBC: init_client withheld the first notify when coinb2 is per-client
+	 * (blank worker pre-auth). Push a clean worker-patched job now so the
+	 * miner hashes the same coinbase the pool uses on mining.submit. */
+	if (ckp->hobc_marker || ckp->direct_worker_payout)
+		update_client(client, client_id);
 
 	/* Update the client now if they have set a valid mindiff different
 	 * from the startdiff. suggest_diff overrides worker mindiff */

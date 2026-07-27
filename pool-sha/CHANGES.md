@@ -1,10 +1,32 @@
 # HobbyHash SHA pools (ckpool) — source changes
 
 **Publisher:** HobbyHash Coin LLC  
-**Document updated:** 2026-07-26 19:25 UTC  
+**Document updated:** 2026-07-27 03:55 UTC  
 **Trees:** `pool-sha/hobc-main/`, `pool-sha/hobc-nano/`, `pool-sha/hobc-pplns/`
 
 This document records HobbyHash Coin LLC patches on top of upstream ckpool and why they exist.
+
+---
+
+## 2026-07-27 03:55 UTC — Grant version-rolling bits 17/18 (LuxOS accept fix)
+
+| File | Change | Why |
+|------|--------|-----|
+| `hobc-main/src/stratifier.c` (and nano/pplns) | In the `mining.configure` handler, narrow the withheld version-rolling bits from `~0x10060000` to `~0x10000000`. Bit 28 stays withheld; bits 17 (`0x20000`) and 18 (`0x40000`) are now granted, so the advertised mask is `0fffe000` instead of `0ff9e000`. | LuxOS firmware rolls the full BIP320 domain regardless of the granted mask, but reports `version_bits` masked down to the grant. With bits 17/18 withheld the pool rebuilt a header without them and rejected roughly 85% of that miner's shares as `Above target`. Granting them is safe: consensus classifies a header's algorithm by extended-field presence (`nNonce64`/`mixHash`), not by bits 17/18 — see `AlgoFromVersionFields()` — and plain SHA blocks carrying rolled bits 17/18 are already accepted on mainnet. |
+
+**Verified:** LuxOS S19j Pro (`LUXminer 2026.7.14`) went from ~14% to 100% accepted on `:5555` with no reconnect storm; all other miners stayed at 100%.
+
+**Scope:** version-rolling mask negotiation only. Share validation already masked with the full `0x1fffe000` domain and is unchanged, as are payout math, marker encoding, and census.
+
+---
+
+## 2026-07-27 03:08 UTC — Withhold pre-auth jobs when coinb2 is per-client
+
+| File | Change | Why |
+|------|--------|-----|
+| `hobc-main/src/stratifier.c` | `init_client()` sends difficulty but no `mining.notify` when `hobc_marker` / `direct_worker_payout` is enabled and the client has not authorised yet. `sauth_process()` calls `update_client()` after a successful authorise. | With a per-client coinb2 the worker name is stamped into the coinbase, but before `mining.authorize` that field is blank. Firmwares that hash the pre-auth job submitted work the pool then validated against the named-worker coinbase, producing a different merkle root and mass `Above target`. Holding the first job until authorise makes the miner and pool agree on one coinbase. |
+
+**Scope:** job delivery timing only. Miners that authorise normally receive work immediately after `mining.authorize`.
 
 ---
 

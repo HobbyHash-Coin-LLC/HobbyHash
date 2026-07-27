@@ -7482,21 +7482,26 @@ static void parse_method(ckpool_t *ckp, sdata_t *sdata, stratum_instance_t *clie
 						mask = "1fffe000";
 					if (!minbit)
 						minbit = 16;
-					/* HOBC V6: never grant version-rolling of the HOBC-reserved
-					 * bits. Bit 28 (0x10000000) is part of the SHA base version
+					/* HOBC V6: never grant version-rolling of bit 28
+					 * (0x10000000). It is part of the SHA base version
 					 * 0x30000000 and must stay set via the base (a miner that
 					 * cleared it would produce a non-SHA version and, because
 					 * firmware only re-supplies rolled bits, would desync from the
-					 * pool's header). Bits 17 (0x20000, KawPow) and 18 (0x40000,
-					 * RandomX) are the algo-signal bits and must stay clear so a
-					 * SHA block solve is not misclassified by the coinbase-marker/
-					 * header-algo consensus check at/after the multi-algo race
-					 * activation height. Intersect with the standard BIP320 domain
-					 * and clear bits 28, 18 and 17. */
+					 * pool's header).
+					 *
+					 * Bits 17 (0x20000) and 18 (0x40000) ARE granted. They are the
+					 * KawPow/RandomX algo-signal bits, but consensus classifies a
+					 * header by extended-field presence (nNonce64/mixHash), not by
+					 * those bits — see AlgoFromVersionFields() — so a SHA solve that
+					 * rolled them still validates as SHA. Withholding them desynced
+					 * LuxOS firmware, which rolls the full BIP320 domain regardless
+					 * of the granted mask but reports version_bits masked to the
+					 * grant, so the pool rebuilt a different header and rejected
+					 * ~85% of its shares as "Above target". */
 					uint32_t mask32 = 0;
 					sscanf(mask, "%x", &mask32);
 					mask32 &= 0x1fffe000U;
-					mask32 &= ~0x10060000U;
+					mask32 &= ~0x10000000U;
 					char hobc_maskbuf[16];
 					snprintf(hobc_maskbuf, sizeof(hobc_maskbuf), "%08x", mask32);
 					json_object_set_new_nocheck(result_val, "version-rolling.mask",

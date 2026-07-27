@@ -24,12 +24,13 @@ Output package name: **`HobbyHash-Linux-Node-x86_64.tar.gz`**
 
 ### 1) Install tools
 
+The release script builds with **SQLite wallet** and **`-DWITH_ZMQ=OFF`**, so you do **not** need `libdb-devel` or `zeromq-devel` (those are EPEL-only on Alma/RHEL 10 and are a common install failure).
+
 **AlmaLinux 10 / RHEL 10 / Rocky 10:**
 
 ```bash
 sudo dnf -y groupinstall "Development Tools"
-sudo dnf -y install cmake git python3 boost-devel libevent-devel openssl-devel \
-  libdb-devel sqlite-devel zeromq-devel
+sudo dnf -y install cmake git python3 boost-devel libevent-devel openssl-devel sqlite-devel
 ```
 
 **Ubuntu 22.04 / 24.04 / Debian 12:**
@@ -37,7 +38,7 @@ sudo dnf -y install cmake git python3 boost-devel libevent-devel openssl-devel \
 ```bash
 sudo apt-get update
 sudo apt-get install -y build-essential cmake git pkg-config python3 \
-  libboost-all-dev libevent-dev libssl-dev libsqlite3-dev libzmq3-dev
+  libboost-all-dev libevent-dev libssl-dev libsqlite3-dev
 ```
 
 ### 2) Enter this folder

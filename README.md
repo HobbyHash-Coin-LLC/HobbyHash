@@ -10,6 +10,7 @@ This repository contains:
 | [`pool-sha/`](pool-sha/) | SHA-256d solo / PPLNS pool source (ckpool-based) |
 | [`pool-gpu/`](pool-gpu/) | KawPow GPU solo pool source (KPSS-based) |
 | [`pool-cpu/`](pool-cpu/) | RandomX CPU solo pool source |
+| [`miners/`](miners/) | Official reference miners (RandomX CPU `hobc-rxminer`) |
 | [`docs/`](docs/) | Technical fork specification |
 
 Copyright © HobbyHash Coin LLC. See `COPYING` / license files inside each tree.
@@ -53,6 +54,8 @@ Read:
 4. Validate `pool_site` (≤ 24 chars), `pool_id`, and `algo` on https://hobbyhashcoin.com/docs/pool-config/ and copy the generated config.
 5. Configure `hobc_marker`, `hobc_pool_id`, `hobc_pool_site`, and census token **with real information**.
 6. Point miners at your stratum port and confirm accepted shares + valid HOBC markers on solved blocks.
+   - Official RandomX CPU miner source: [`miners/hobc-rxminer/`](miners/hobc-rxminer/)
+   - Prebuilt RandomX packages: https://hobbyhashcoin.com/downloads/miner/randomx/
 
 Each folder has a beginner (“for dummies”) guide with copy-paste commands.
 
